@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    device_port: "/dev/bno_imu"
+    frame_id: "imu_link"
+    baud_rate: 460800
+    topic_name_imu_data: "imu/data"
+    topic_name_gravity: "imu/gravity"
+    filter_alpha_acc: 0.1
+    filter_alpha_gyro: 0.1
+    filter_alpha_gravity: 0.5

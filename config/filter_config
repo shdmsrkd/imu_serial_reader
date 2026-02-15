@@ -1,0 +1,14 @@
+baud_rate: 460800
+device_port: /dev/bno_imu
+filter_alpha_acc: 0.1
+filter_alpha_gravity: 0.5
+filter_alpha_gyro: 0.67
+filter_alpha_quat: 0.29
+frame_id: imu_link
+qos_overrides./parameter_events.publisher.depth: 1000
+qos_overrides./parameter_events.publisher.durability: volatile
+qos_overrides./parameter_events.publisher.history: keep_last
+qos_overrides./parameter_events.publisher.reliability: reliable
+topic_name_gravity: imu/gravity
+topic_name_imu_data: imu/data
+use_sim_time: false
