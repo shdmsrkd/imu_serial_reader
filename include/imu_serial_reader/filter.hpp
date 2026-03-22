@@ -12,11 +12,17 @@ public:
     void setAlpha(float alpha);
 
 private:
+    static constexpr int BUFFER_SIZE = 100;
+
     float alpha_;
     float filtered_value_[3];
     float filtered_value4_[4];
     bool initialized_;
     bool initialized4_;
+    float buffer_3_[BUFFER_SIZE][3];
+    float buffer_4_[BUFFER_SIZE][4];
+    int buffer_index_;
+    int buffer_count_;
 };
 
 #endif

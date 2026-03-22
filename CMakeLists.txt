@@ -28,7 +28,7 @@ add_executable(imu_serial_receiver_node
   src/ImuSerialReceiver.cpp
   src/filter.cpp
   src/stateMachine.cpp
-  src/slider.cpp
+
 )
 
 ament_target_dependencies(imu_serial_receiver_node rclcpp std_msgs sensor_msgs geometry_msgs visualization_msgs)
