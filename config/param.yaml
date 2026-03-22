@@ -5,6 +5,10 @@
     baud_rate: 460800
     topic_name_imu_data: "imu/data"
     topic_name_gravity: "imu/gravity"
+    topic_name_rpy: "imu/rpy"
     filter_alpha_acc: 0.1
     filter_alpha_gyro: 0.1
     filter_alpha_gravity: 0.5
+    filter_alpha_quat: 0.1
+    filter_alpha_rpy: 0.1
+    set_zero_all: false

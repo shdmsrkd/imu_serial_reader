@@ -16,8 +16,9 @@ int main(int argc, char* argv[])
   Filter gyro_filter(static_cast<float>(node->getFilterAlphaGyro()));
   Filter gravity_filter(static_cast<float>(node->getFilterAlphaGravity()));
   Filter quat_filter(static_cast<float>(node->getFilterAlphaQuat()));
+  Filter rpy_filter(static_cast<float>(node->getFilterAlphaRpy()));
 
-  StateMachine state_machine(node.get(), &acc_filter, &gyro_filter, &gravity_filter, &quat_filter);
+  StateMachine state_machine(node.get(), &acc_filter, &gyro_filter, &gravity_filter, &quat_filter, &rpy_filter);
   state_machine.setState(StateMachine::State::READING);
 
   // 메인 루프

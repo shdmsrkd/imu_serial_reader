@@ -6,6 +6,7 @@
 #include <thread>
 #include <shared_mutex>
 #include <atomic>
+#include <mutex>
 
 class ImuSerialReceiver : public rclcpp::Node
 {
@@ -21,11 +22,15 @@ class ImuSerialReceiver : public rclcpp::Node
     double getFilterAlphaGyro() const { return filter_alpha_gyro_; }
     double getFilterAlphaGravity() const { return filter_alpha_gravity_; }
     double getFilterAlphaQuat() const { return filter_alpha_quat_; }
+    double getFilterAlphaRpy() const { return filter_alpha_rpy_; }
     const std::string& getTopicNameImuData() const { return topic_name_imu_data_; }
     const std::string& getTopicNameGravity() const { return topic_name_gravity_; }
+    const std::string& getTopicNameRpy() const { return topic_name_rpy_; }
     const std::string& getFrameId() const { return frame_id_; }
     bool isDataReady() const { return data_ready_.load(); }
     void consumeData() { data_ready_.store(false); }
+    bool hasZeroReference() const;
+    void getZeroReference(double quat_inv[4], double rpy[3]) const;
 
     void initParameters();
     void setupSliderParameter();
@@ -64,10 +69,18 @@ class ImuSerialReceiver : public rclcpp::Node
     std::string frame_id_;
     std::string topic_name_imu_data_;
     std::string topic_name_gravity_;
+    std::string topic_name_rpy_;
     double filter_alpha_acc_;
     double filter_alpha_gyro_;
     double filter_alpha_gravity_;
     double filter_alpha_quat_;
+    double filter_alpha_rpy_;
+    bool set_zero_all_ = false;
+    bool zero_ref_valid_ = false;
+    bool zero_button_latched_ = false;
+    double zero_quat_inv_[4] = {0.0, 0.0, 0.0, 1.0};
+    double zero_rpy_[3] = {0.0, 0.0, 0.0};
+    mutable std::mutex zero_ref_mtx_;
 
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;

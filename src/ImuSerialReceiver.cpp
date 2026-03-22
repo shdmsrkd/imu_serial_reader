@@ -1,4 +1,36 @@
 #include "imu_serial_reader/ImuSerialReceiver.hpp"
+#include <cmath>
+
+namespace {
+void multiplyQuaternion(double ax, double ay, double az, double aw,
+                        double bx, double by, double bz, double bw,
+                        double& rx, double& ry, double& rz, double& rw)
+{
+    rx = aw * bx + ax * bw + ay * bz - az * by;
+    ry = aw * by - ax * bz + ay * bw + az * bx;
+    rz = aw * bz + ax * by - ay * bx + az * bw;
+    rw = aw * bw - ax * bx - ay * by - az * bz;
+}
+
+void normalizeQuaternion(double& x, double& y, double& z, double& w)
+{
+    const double norm = std::sqrt(x*x + y*y + z*z + w*w);
+    if (norm > 1e-12)
+    {
+        x /= norm;
+        y /= norm;
+        z /= norm;
+        w /= norm;
+    }
+    else
+    {
+        x = 0.0;
+        y = 0.0;
+        z = 0.0;
+        w = 1.0;
+    }
+}
+}
 
 ImuSerialReceiver::ImuSerialReceiver(const std::string & port, unsigned int baud_rate)
     : Node("imu_serial_receiver_node"),
@@ -19,11 +51,14 @@ void ImuSerialReceiver::initParameters()
     this->declare_parameter<int>("baud_rate", 460800);
     this->declare_parameter<std::string>("topic_name_imu_data", "/imu/data");
     this->declare_parameter<std::string>("topic_name_gravity", "/imu/gravity");
+    this->declare_parameter<std::string>("topic_name_rpy", "/imu/rpy");
+    this->declare_parameter<bool>("set_zero_all", false);
     // 파라미터 가져오기 (필터 알파값은 기본값으로 초기화 후 setupSliderParameter에서 선언)
     filter_alpha_acc_ = 0.1;
     filter_alpha_gyro_ = 0.1;
     filter_alpha_gravity_ = 0.1;
     filter_alpha_quat_ = 0.1;
+    filter_alpha_rpy_ = 0.1;
 
     // 슬라이더 파라미터 설정 (rqt_reconfigure에서 슬라이더로 표시됨)
     setupSliderParameter();
@@ -34,10 +69,12 @@ void ImuSerialReceiver::initParameters()
     baud_rate_ = this->get_parameter("baud_rate").as_int();
     topic_name_imu_data_ = this->get_parameter("topic_name_imu_data").as_string();
     topic_name_gravity_ = this->get_parameter("topic_name_gravity").as_string();
+    topic_name_rpy_ = this->get_parameter("topic_name_rpy").as_string();
     filter_alpha_acc_ = this->get_parameter("filter_alpha_acc").as_double();
     filter_alpha_gyro_ = this->get_parameter("filter_alpha_gyro").as_double();
     filter_alpha_gravity_ = this->get_parameter("filter_alpha_gravity").as_double();
     filter_alpha_quat_ = this->get_parameter("filter_alpha_quat").as_double();
+    filter_alpha_rpy_ = this->get_parameter("filter_alpha_rpy").as_double();
 
     RCLCPP_INFO(this->get_logger(), "IMU Serial Receiver Node initialized with parameters:");
     RCLCPP_INFO(this->get_logger(), "Device Port: %s", device_port_.c_str());
@@ -45,10 +82,12 @@ void ImuSerialReceiver::initParameters()
     RCLCPP_INFO(this->get_logger(), "Baud Rate: %d", baud_rate_);
     RCLCPP_INFO(this->get_logger(), "Topic Name IMU Data: %s", topic_name_imu_data_.c_str());
     RCLCPP_INFO(this->get_logger(), "Topic Name Gravity: %s", topic_name_gravity_.c_str());
+    RCLCPP_INFO(this->get_logger(), "Topic Name RPY: %s", topic_name_rpy_.c_str());
     RCLCPP_INFO(this->get_logger(), "Filter Alpha Acc: %f", filter_alpha_acc_);
     RCLCPP_INFO(this->get_logger(), "Filter Alpha Gyro: %f", filter_alpha_gyro_);
     RCLCPP_INFO(this->get_logger(), "Filter Alpha Gravity: %f", filter_alpha_gravity_);
     RCLCPP_INFO(this->get_logger(), "Filter Alpha Quat: %f", filter_alpha_quat_);
+    RCLCPP_INFO(this->get_logger(), "Filter Alpha RPY: %f", filter_alpha_rpy_);
 }
 
 ImuSerialReceiver::~ImuSerialReceiver()
@@ -142,16 +181,45 @@ void ImuSerialReceiver::readLoop()
 
                             if(packet_count % 20 == 0)
                             {
+                                double corrected_quat[4] = {
+                                    static_cast<double>(parsed.quat[0]),
+                                    static_cast<double>(parsed.quat[1]),
+                                    static_cast<double>(parsed.quat[2]),
+                                    static_cast<double>(parsed.quat[3])
+                                };
+                                double corrected_rpy[3] = {
+                                    static_cast<double>(parsed.rpy[0]),
+                                    static_cast<double>(parsed.rpy[1]),
+                                    static_cast<double>(parsed.rpy[2])
+                                };
+
+                                if (hasZeroReference())
+                                {
+                                    double zero_quat_inv[4];
+                                    double zero_rpy[3];
+                                    getZeroReference(zero_quat_inv, zero_rpy);
+
+                                    multiplyQuaternion(
+                                        zero_quat_inv[0], zero_quat_inv[1], zero_quat_inv[2], zero_quat_inv[3],
+                                        corrected_quat[0], corrected_quat[1], corrected_quat[2], corrected_quat[3],
+                                        corrected_quat[0], corrected_quat[1], corrected_quat[2], corrected_quat[3]);
+                                    normalizeQuaternion(corrected_quat[0], corrected_quat[1], corrected_quat[2], corrected_quat[3]);
+
+                                    corrected_rpy[0] -= zero_rpy[0];
+                                    corrected_rpy[1] -= zero_rpy[1];
+                                    corrected_rpy[2] -= zero_rpy[2];
+                                }
+
                                 RCLCPP_INFO(this->get_logger(),
                                     "[Packet #%zu] Quat: [%.3f, %.3f, %.3f, %.3f] | "
                                     "RPY: [%.3f, %.3f, %.3f] deg | "
                                     "Acc: [%.2f, %.2f, %.2f] m/s² | "
                                     "Gravity: [%.2f, %.2f, %.2f] m/s²",
                                     packet_count,
-                                    sensor_data.quat[0], sensor_data.quat[1], sensor_data.quat[2], sensor_data.quat[3],
-                                    sensor_data.rpy[0], sensor_data.rpy[1], sensor_data.rpy[2],
-                                    sensor_data.acc[0], sensor_data.acc[1], sensor_data.acc[2],
-                                    sensor_data.gravity[0], sensor_data.gravity[1], sensor_data.gravity[2]);
+                                    corrected_quat[0], corrected_quat[1], corrected_quat[2], corrected_quat[3],
+                                    corrected_rpy[0], corrected_rpy[1], corrected_rpy[2],
+                                    parsed.acc[0], parsed.acc[1], parsed.acc[2],
+                                    parsed.gravity[0], parsed.gravity[1], parsed.gravity[2]);
                             }
 
                             data_buffer_.erase(data_buffer_.begin(), data_buffer_.begin() + i + PACKET_SIZE);
@@ -278,6 +346,16 @@ void ImuSerialReceiver::setupSliderParameter()
     desc_quat.floating_point_range.push_back(range_quat);
     this->declare_parameter("filter_alpha_quat", filter_alpha_quat_, desc_quat);
 
+    // filter_alpha_rpy 슬라이더
+    rcl_interfaces::msg::ParameterDescriptor desc_rpy;
+    desc_rpy.description = "RPY 로우패스 필터 알파값 (0.0~1.0)";
+    rcl_interfaces::msg::FloatingPointRange range_rpy;
+    range_rpy.from_value = 0.0;
+    range_rpy.to_value = 1.0;
+    range_rpy.step = 0.01;
+    desc_rpy.floating_point_range.push_back(range_rpy);
+    this->declare_parameter("filter_alpha_rpy", filter_alpha_rpy_, desc_rpy);
+
     // 파라미터 변경 콜백 등록
     param_callback_handle_ = this->add_on_set_parameters_callback(
         std::bind(&ImuSerialReceiver::onParameterChange, this, std::placeholders::_1));
@@ -313,7 +391,68 @@ rcl_interfaces::msg::SetParametersResult ImuSerialReceiver::onParameterChange(
             filter_alpha_quat_ = param.as_double();
             RCLCPP_INFO(this->get_logger(), "filter_alpha_quat 변경: %f", filter_alpha_quat_);
         }
+        else if (param.get_name() == "filter_alpha_rpy")
+        {
+            filter_alpha_rpy_ = param.as_double();
+            RCLCPP_INFO(this->get_logger(), "filter_alpha_rpy 변경: %f", filter_alpha_rpy_);
+        }
+        else if (param.get_name() == "set_zero_all")
+        {
+            set_zero_all_ = param.as_bool();
+            if (set_zero_all_ && !zero_button_latched_)
+            {
+                IMU_Packet_t snapshot;
+                {
+                    std::shared_lock<std::shared_mutex> lk(sensor_mtx_);
+                    snapshot = sensor_data;
+                }
+
+                const double qx = snapshot.quat[0];
+                const double qy = snapshot.quat[1];
+                const double qz = snapshot.quat[2];
+                const double qw = snapshot.quat[3];
+                const double norm_sq = qx*qx + qy*qy + qz*qz + qw*qw;
+                if (norm_sq > 1e-12)
+                {
+                    std::lock_guard<std::mutex> lock(zero_ref_mtx_);
+                    zero_quat_inv_[0] = -qx / norm_sq;
+                    zero_quat_inv_[1] = -qy / norm_sq;
+                    zero_quat_inv_[2] = -qz / norm_sq;
+                    zero_quat_inv_[3] =  qw / norm_sq;
+
+                    zero_rpy_[0] = snapshot.rpy[0];
+                    zero_rpy_[1] = snapshot.rpy[1];
+                    zero_rpy_[2] = snapshot.rpy[2];
+                    zero_ref_valid_ = true;
+                }
+                zero_button_latched_ = true;
+                RCLCPP_INFO(this->get_logger(), "set_zero_all: current values captured as zero reference");
+            }
+            else if (!set_zero_all_)
+            {
+                zero_button_latched_ = false;
+            }
+        }
     }
 
     return result;
+}
+
+bool ImuSerialReceiver::hasZeroReference() const
+{
+    std::lock_guard<std::mutex> lock(zero_ref_mtx_);
+    return zero_ref_valid_;
+}
+
+void ImuSerialReceiver::getZeroReference(double quat_inv[4], double rpy[3]) const
+{
+    std::lock_guard<std::mutex> lock(zero_ref_mtx_);
+    quat_inv[0] = zero_quat_inv_[0];
+    quat_inv[1] = zero_quat_inv_[1];
+    quat_inv[2] = zero_quat_inv_[2];
+    quat_inv[3] = zero_quat_inv_[3];
+
+    rpy[0] = zero_rpy_[0];
+    rpy[1] = zero_rpy_[1];
+    rpy[2] = zero_rpy_[2];
 }
