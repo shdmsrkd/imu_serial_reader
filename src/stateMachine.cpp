@@ -38,7 +38,8 @@ StateMachine::StateMachine(ImuSerialReceiver* imu_receiver, Filter* acc_filter, 
       gyro_filter_(gyro_filter),
       gravity_filter_(gravity_filter),
       quat_filter_(quat_filter),
-        rpy_filter_(rpy_filter),
+            rpy_filter_(rpy_filter),
+            has_valid_sample_(false),
       current_state(State::READING)
 {
     // QoS 설정
@@ -73,43 +74,33 @@ bool StateMachine::StateControl()
     {
         return false;
     }
+
     try
     {
-        switch (current_state)
+        current_state = State::READING;
+
+        if (imu_receiver_handler_->isDataReady())
         {
-            case State::READING:
-            {
-                if (imu_receiver_handler_->isDataReady())
-                {
-                    current_state = State::FILTERING;
-                }
-            }
-            break;
-
-            case State::FILTERING:
-                LPFSlider(
-                    imu_receiver_handler_->getFilterAlphaAcc(),
-                    imu_receiver_handler_->getFilterAlphaGyro(),
-                    imu_receiver_handler_->getFilterAlphaGravity(),
-                    imu_receiver_handler_->getFilterAlphaQuat(),
-                    imu_receiver_handler_->getFilterAlphaRpy());
-                Filtering();
-                imu_receiver_handler_->consumeData();
-                current_state = State::PUBLISHING;
-                break;
-
-            case State::PUBLISHING:
-                Publishing();
-                current_state = State::READING;
-                break;
-
-            case State::ERROR:
-                HandleError();
-                break;
-
-            default:
-                break;
+            current_state = State::FILTERING;
+            LPFSlider(
+                imu_receiver_handler_->getFilterAlphaAcc(),
+                imu_receiver_handler_->getFilterAlphaGyro(),
+                imu_receiver_handler_->getFilterAlphaGravity(),
+                imu_receiver_handler_->getFilterAlphaQuat(),
+                imu_receiver_handler_->getFilterAlphaRpy());
+            Filtering();
+            imu_receiver_handler_->consumeData();
+            has_valid_sample_ = true;
         }
+
+        if (!has_valid_sample_)
+        {
+            return true;
+        }
+
+        current_state = State::PUBLISHING;
+        Publishing();
+        current_state = State::READING;
     }
     catch (const std::system_error& e)
     {

@@ -36,6 +36,7 @@ class StateMachine
     Filter* gravity_filter_;
     Filter* quat_filter_;
     Filter* rpy_filter_;
+    bool has_valid_sample_ = false;
     State current_state;
     int error_count_ = 0;
 
